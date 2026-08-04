@@ -1,0 +1,32 @@
+name: CI
+on:
+  push: { branches: [main] }
+  pull_request:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix: { python-version: ["3.10", "3.12"] }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "${{ matrix.python-version }}" }
+      - run: pip install -e ".[dev]"
+      - run: ruff check src/ tests/ examples/
+      - run: pytest tests/ -q
+  ledger-append-only:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - name: Forbid edits/deletions to ledger files
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            BASE="origin/${{ github.base_ref }}"
+            git fetch origin ${{ github.base_ref }}
+            CHANGED=$(git diff --diff-filter=MD --name-only "$BASE"...HEAD -- 'experiments/*.jsonl' || true)
+            if [ -n "$CHANGED" ]; then
+              echo "::error::Ledger files are append-only. Modified/deleted: $CHANGED"
+              exit 1
+            fi
+          fi
