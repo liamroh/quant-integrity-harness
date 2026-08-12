@@ -23,7 +23,7 @@ working in this repo MUST follow these rules. They are not suggestions.
    participation and turnover stated explicitly.
 7. **Reporting is gated.** Final results go through
    `ExperimentLedger.report_gate()` (DSR > 0.95 against the full ledger).
-   If blocked, the honest conclusion is "not distinguishable from luck" —
+   If blocked, the honest conclusion is "not distinguishable from luck",
    write that, do not search for a framing that passes.
 
 ## Engineering rules
