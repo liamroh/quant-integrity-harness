@@ -10,6 +10,14 @@ the time at which its label resolves (e.g., a 20-day forward return resolves
 - CPCV forms all C(N, k) group combinations as test sets, producing
   phi(N, k) = (k / N) * C(N, k) distinct backtest paths.
 
+SCOPE: both splitters assume ONE contiguous time series, one row per time
+step, spans sorted by t0. Stacked panel data (many assets, one row per
+asset-date, the usual shape in cross-sectional equity research) is out of
+scope: pre-sorting a panel by time interleaves assets inside each fold, so
+"contiguous test block" no longer means what purging assumes, and leakage
+returns silently. For panels, run the CV per asset and aggregate results,
+or wait for explicit group support.
+
 Reference: Lopez de Prado, Advances in Financial Machine Learning, ch. 7, 12.
 """
 

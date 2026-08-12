@@ -44,6 +44,11 @@ def net_returns(
 
     `turnover[t]` is the fraction of the portfolio traded at period t
     (1.0 = full round trip of the whole book).
+
+    Simplification: `participation` is a single constant, so the impact
+    charge per unit turnover does not scale with the amount actually
+    traded each period. A placeholder pending per-period participation;
+    see the calibration warning in the module docstring.
     """
     g = np.asarray(gross_returns, dtype=float)
     to = np.asarray(turnover, dtype=float)

@@ -11,7 +11,9 @@ Design rules:
   `prev_hash`; `verify()` walks the chain and CI runs it on every
   committed ledger file.
 - `record()` refuses duplicate config hashes unless `allow_rerun=True`,
-  and reruns still append (they never overwrite).
+  and reruns still append (they never overwrite). Note that every rerun
+  counts as one more trial in the DSR's N, which deflates in the
+  conservative direction (harder to pass, never easier).
 - `report_gate()` takes the raw return series plus a recorded config hash,
   recomputes the statistics itself, and raises unless the DSR computed
   from the FULL ledger clears the threshold -- wire this into a
@@ -152,6 +154,14 @@ class ExperimentLedger:
         return len(self._records())
 
     def trial_sharpe_variance(self) -> float:
+        """Cross-trial variance of recorded Sharpes (feeds E[max SR]).
+
+        Caveat: SR estimator variance scales roughly with 1/n_obs, so
+        mixing trials with very different `n_obs` (or different return
+        frequencies) muddies what this variance means in the False
+        Strategy Theorem benchmark. Keep one frequency and broadly
+        comparable sample sizes per ledger file.
+        """
         srs = [r["sharpe"] for r in self._records()]
         if len(srs) < 2:
             return 0.0

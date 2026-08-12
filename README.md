@@ -11,7 +11,9 @@ self-deception mechanically difficult.
   `CombinatorialPurgedCV` (CPCV) with label-span purging and embargo, per
   López de Prado (*Advances in Financial Machine Learning*, ch. 7, 12).
   CPCV generates φ(N,k) = (k/N)·C(N,k) full out-of-sample backtest paths so
-  you evaluate a *distribution* of outcomes, not one lucky path.
+  you evaluate a *distribution* of outcomes, not one lucky path. Both
+  splitters assume a single contiguous time series per CV run; stacked
+  panel data (one row per asset-date) must be split per asset.
 - **Multiple-testing-aware statistics** — Probabilistic Sharpe Ratio,
   Deflated Sharpe Ratio (with the False Strategy Theorem E[max SR]
   benchmark), Minimum Track Record Length, Lo (2002) autocorrelation-aware
