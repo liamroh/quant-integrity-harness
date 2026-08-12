@@ -9,8 +9,10 @@ Design rules:
 - Append-only: records are never edited or deleted (deletion = fraud here).
 - `record()` refuses duplicate config hashes unless `allow_rerun=True`,
   and reruns still append (they never overwrite).
-- `report_gate()` raises unless the DSR computed from the FULL ledger
-  clears the threshold -- wire this into a pre-report hook.
+- `report_gate()` takes the raw return series plus a recorded config hash,
+  recomputes the statistics itself, and raises unless the DSR computed
+  from the FULL ledger clears the threshold -- wire this into a
+  pre-report hook.
 """
 
 from __future__ import annotations
@@ -19,12 +21,14 @@ import hashlib
 import json
 import subprocess
 import time
+import warnings
 from pathlib import Path
 from typing import Any
 
 import numpy as np
+from scipy import stats
 
-from .metrics import deflated_sharpe_ratio
+from .metrics import deflated_sharpe_ratio, sharpe_ratio
 
 
 def config_hash(config: dict[str, Any]) -> str:
@@ -115,18 +119,81 @@ class ExperimentLedger:
 
     def report_gate(
         self,
+        returns: np.ndarray,
+        config_hash: str,
+        threshold: float = 0.95,
+        sr_tol: float = 1e-6,
+    ) -> float:
+        """Raise unless the DSR of a RECORDED trial clears `threshold`.
+
+        The gate does not trust caller-typed numbers. It requires:
+        1. `config_hash` exists in the ledger (the trial was recorded
+           before being reported, per the constitution).
+        2. The per-period Sharpe recomputed from `returns` matches a
+           recorded Sharpe for that hash within `sr_tol`, and the series
+           length matches the recorded `n_obs`.
+        Skew and raw kurtosis are then computed from the series itself, so
+        fat tails and negative skew increase the DSR haircut instead of
+        silently defaulting to Gaussian. Wire this into any 'publish
+        results' path.
+        """
+        r = np.asarray(returns, dtype=float)
+        if r.ndim != 1:
+            raise ValueError("returns must be a 1-D per-period return series")
+        matches = [rec for rec in self._records() if rec["config_hash"] == config_hash]
+        if not matches:
+            raise ValueError(
+                f"config_hash {config_hash} not found in ledger; every "
+                "evaluation must go through record() before it is reported."
+            )
+        sr = sharpe_ratio(r)
+        n_obs = len(r)
+        same_n = [rec for rec in matches if rec["n_obs"] == n_obs]
+        if not same_n:
+            raise ValueError(
+                f"n_obs mismatch for {config_hash}: series has {n_obs} "
+                f"observations, ledger has {[rec['n_obs'] for rec in matches]}."
+            )
+        if not any(abs(rec["sharpe"] - sr) <= sr_tol for rec in same_n):
+            recorded = [round(rec["sharpe"], 6) for rec in same_n]
+            raise ValueError(
+                f"return series does not match ledger record(s) for "
+                f"{config_hash}: recomputed sharpe {sr:.6f}, recorded "
+                f"{recorded}. The gate only blesses recorded results."
+            )
+        d = self.dsr(sr, n_obs, float(stats.skew(r)), float(stats.kurtosis(r, fisher=False)))
+        self._check_threshold(d, threshold)
+        return d
+
+    def report_gate_scalar(
+        self,
         observed_sr: float,
         n_obs: int,
         threshold: float = 0.95,
         skew: float = 0.0,
         kurtosis: float = 3.0,
     ) -> float:
-        """Raise unless DSR > threshold. Wire into any 'publish results' path."""
+        """Deprecated escape hatch: trusts caller-supplied numbers.
+
+        Prefer `report_gate(returns, config_hash)`. This path cannot verify
+        the numbers against the ledger, and its Gaussian moment defaults
+        understate the haircut exactly when it matters (fat tails,
+        negative skew).
+        """
+        warnings.warn(
+            "report_gate_scalar trusts caller-supplied numbers; use "
+            "report_gate(returns, config_hash) instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         d = self.dsr(observed_sr, n_obs, skew, kurtosis)
+        self._check_threshold(d, threshold)
+        return d
+
+    def _check_threshold(self, d: float, threshold: float) -> None:
         if d <= threshold:
             raise RuntimeError(
                 f"REPORT BLOCKED: DSR={d:.4f} <= {threshold} given "
                 f"N={self.n_trials()} ledger trials. This result is not "
                 "distinguishable from selection luck."
             )
-        return d

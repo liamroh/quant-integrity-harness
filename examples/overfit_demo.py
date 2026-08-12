@@ -34,10 +34,11 @@ ledger_path = Path(tempfile.mkdtemp(prefix="overfit_demo_")) / "demo_ledger.json
 print(f"Demo ledger: {ledger_path}\n")
 ledger = ExperimentLedger(ledger_path)
 sharpes = []
+hashes = []
 for j in range(N):
     sr = sharpe_ratio(trial_returns[:, j])
     sharpes.append(sr)
-    ledger.record({"demo": "noise-mining", "config_id": j}, sr, T, allow_rerun=True)
+    hashes.append(ledger.record({"demo": "noise-mining", "config_id": j}, sr, T))
 
 best = int(np.argmax(sharpes))
 best_sr = sharpes[best]
@@ -45,9 +46,10 @@ ann = best_sr * np.sqrt(252)
 print(f"Mined {N} configs. Best in-sample Sharpe: {best_sr:.3f}/day (~{ann:.2f} annualized)")
 print("A naive backtest report would ship this.\n")
 
-# 1) DSR gate
+# 1) DSR gate: takes the return series and the recorded trial's hash, and
+# recomputes the statistics itself. It cannot bless unrecorded numbers.
 try:
-    ledger.report_gate(best_sr, n_obs=T)
+    ledger.report_gate(trial_returns[:, best], hashes[best])
     print("DSR gate: PASSED (unexpected!)")
 except RuntimeError as e:
     print(f"DSR gate: {e}\n")

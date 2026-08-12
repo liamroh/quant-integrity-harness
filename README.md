@@ -19,9 +19,10 @@ self-deception mechanically difficult.
 - **An append-only experiment ledger** — every configuration you evaluate is
   a recorded trial (JSONL: config hash, git SHA, timestamp, Sharpe). The
   ledger's true trial count and cross-trial variance feed the DSR, and
-  `report_gate()` refuses to bless any result that doesn't clear DSR > 0.95
-  against your *full* trial history. CI enforces that ledger files are
-  never edited or deleted.
+  `report_gate()` takes the raw return series plus a recorded trial's hash,
+  recomputes the Sharpe, skew, and kurtosis itself, and refuses to bless
+  any result that doesn't clear DSR > 0.95 against your *full* trial
+  history. CI enforces that ledger files are never edited or deleted.
 - **Net-of-cost evaluation** — half-spread + square-root-law market impact
   with explicit participation and turnover accounting.
 
@@ -67,8 +68,8 @@ for split in cv.split(spans):          # 15 splits -> 5 OOS paths
     ...  # fit on split.train_idx, predict on split.test_idx
 
 sr = sharpe_ratio(my_oos_returns)      # per-period, always
-ledger.record({"model": "gbrt", "depth": 3}, sr, n_obs=len(my_oos_returns))
-ledger.report_gate(sr, n_obs=len(my_oos_returns))  # raises unless DSR > 0.95
+h = ledger.record({"model": "gbrt", "depth": 3}, sr, n_obs=len(my_oos_returns))
+ledger.report_gate(my_oos_returns, h)  # raises unless DSR > 0.95
 ```
 
 ## Design rules (see CLAUDE.md)
