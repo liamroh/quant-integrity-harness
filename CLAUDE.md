@@ -34,6 +34,22 @@ working in this repo MUST follow these rules. They are not suggestions.
 - The experiment ledger file (`experiments/ledger.jsonl`) is append-only.
   Never edit or delete lines. Treat deletion as data fraud.
 
+## Commit and PR conventions
+- Branches are named `lr/<feature-description>`, short and kebab-case
+  (e.g. `lr/cpcv-path-reporting`, `lr/fix-ledger-ci`).
+- Commits are authored solely as Liam Roh <liamrohx@gmail.com>. No
+  Co-Authored-By trailers, no AI attribution, no session links
+  (enforced via `.claude/settings.json` attribution config).
+- PR descriptions are concise and pragmatic: technical detail only, no
+  flowery language, expand a point only when a reviewer needs it.
+  Structure: one-line summary, changes, non-obvious rationale (required
+  for evaluation-code changes per rule 2 above), tests run and results,
+  known limitations.
+- Writing style everywhere (code comments, docs, commit messages, PR
+  text): plain language, no em or en dashes.
+- Use the `/pr` skill to open PRs: it gates on ruff, pytest, and ledger
+  verification before pushing.
+
 ## Agent workflow guidance
 - Propose-and-test loops are allowed ONLY if every iteration is recorded in
   the ledger. Unregistered parameter sweeps are forbidden.
