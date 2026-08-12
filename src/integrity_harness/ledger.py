@@ -7,6 +7,9 @@ count and cross-trial Sharpe variance feed the Deflated Sharpe Ratio, so a
 
 Design rules:
 - Append-only: records are never edited or deleted (deletion = fraud here).
+- Tamper-evident: each record hash-chains to the previous one via
+  `prev_hash`; `verify()` walks the chain and CI runs it on every
+  committed ledger file.
 - `record()` refuses duplicate config hashes unless `allow_rerun=True`,
   and reruns still append (they never overwrite).
 - `report_gate()` takes the raw return series plus a recorded config hash,
@@ -29,6 +32,9 @@ import numpy as np
 from scipy import stats
 
 from .metrics import deflated_sharpe_ratio, sharpe_ratio
+
+# Sentinel prev_hash for the first record of a hash-chained ledger.
+GENESIS_HASH = "0" * 64
 
 
 def config_hash(config: dict[str, Any]) -> str:
@@ -56,14 +62,13 @@ class ExperimentLedger:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.path.touch(exist_ok=True)
 
+    def _raw_lines(self) -> list[bytes]:
+        """Non-empty record lines as raw bytes (newline stripped)."""
+        with self.path.open("rb") as f:
+            return [ln.rstrip(b"\r\n") for ln in f if ln.strip()]
+
     def _records(self) -> list[dict[str, Any]]:
-        records = []
-        with self.path.open() as f:
-            for line in f:
-                line = line.strip()
-                if line:
-                    records.append(json.loads(line))
-        return records
+        return [json.loads(ln) for ln in self._raw_lines()]
 
     def record(
         self,
@@ -73,13 +78,20 @@ class ExperimentLedger:
         notes: str = "",
         allow_rerun: bool = False,
     ) -> str:
-        """Append one trial. Returns the config hash."""
+        """Append one trial. Returns the config hash.
+
+        Each record carries `prev_hash`, the SHA-256 of the previous
+        record's raw line bytes (GENESIS_HASH for the first record), making
+        the file a hash chain that `verify()` can check for tampering.
+        """
         h = config_hash(config)
-        if not allow_rerun and any(r["config_hash"] == h for r in self._records()):
+        lines = self._raw_lines()
+        if not allow_rerun and any(json.loads(ln)["config_hash"] == h for ln in lines):
             raise ValueError(
                 f"config_hash {h} already in ledger; pass allow_rerun=True to "
                 "append a rerun (reruns are appended, never overwritten)."
             )
+        prev_hash = GENESIS_HASH if not lines else hashlib.sha256(lines[-1]).hexdigest()
         rec = {
             "config_hash": h,
             "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
@@ -88,10 +100,53 @@ class ExperimentLedger:
             "sharpe": float(sharpe),
             "n_obs": int(n_obs),
             "notes": notes,
+            "prev_hash": prev_hash,
         }
         with self.path.open("a") as f:
             f.write(json.dumps(rec, default=str) + "\n")
         return h
+
+    def verify(self) -> int:
+        """Walk the hash chain; return the number of verified links.
+
+        Raises ValueError if any chained record's `prev_hash` does not match
+        the SHA-256 of the preceding line, or if an unchained record appears
+        after chaining has started. Records written before hash-chaining
+        existed (no `prev_hash` field) are tolerated as a legacy prefix;
+        the first chained record locks onto the last legacy line's bytes.
+
+        The chain detects edits, insertions, and deletions anywhere except
+        pure truncation of the newest records; committed files get
+        truncation protection from the CI append-only prefix check.
+        """
+        chained = False
+        verified = 0
+        prev_line: bytes | None = None
+        for i, ln in enumerate(self._raw_lines()):
+            rec = json.loads(ln)
+            if "prev_hash" not in rec:
+                if chained:
+                    raise ValueError(
+                        f"{self.path}: record {i} is missing prev_hash after "
+                        "chained records began; the ledger has been altered."
+                    )
+                prev_line = ln
+                continue
+            expected = (
+                GENESIS_HASH if prev_line is None else hashlib.sha256(prev_line).hexdigest()
+            )
+            if rec["prev_hash"] != expected:
+                raise ValueError(
+                    f"{self.path}: hash chain broken at record {i} "
+                    f"(config_hash {rec.get('config_hash', '?')}): prev_hash "
+                    f"{rec['prev_hash'][:12]}... does not match the preceding "
+                    f"record ({expected[:12]}...). The ledger has been edited, "
+                    "reordered, or had records removed."
+                )
+            chained = True
+            verified += 1
+            prev_line = ln
+        return verified
 
     def n_trials(self) -> int:
         return len(self._records())

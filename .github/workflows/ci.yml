@@ -31,3 +31,8 @@ jobs:
           fi
       - name: Ledger files must be append-only (prefix check)
         run: bash scripts/ledger_append_check.sh "${{ steps.base.outputs.base }}"
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: pip install -e .
+      - name: Ledger hash chains must verify
+        run: python scripts/verify_ledgers.py experiments
