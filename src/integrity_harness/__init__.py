@@ -6,6 +6,12 @@ that gates result reporting on the Deflated Sharpe Ratio.
 """
 
 from .costs import CostModel, net_returns
+from .haircut import (
+    HaircutResult,
+    adjusted_p_values,
+    haircut_sharpe,
+    sharpe_p_value,
+)
 from .ledger import ExperimentLedger, LedgerPBOResult, config_hash
 from .metrics import (
     annualization_factor_lo,
@@ -25,16 +31,20 @@ __all__ = [
     "CombinatorialPurgedCV",
     "CostModel",
     "ExperimentLedger",
+    "HaircutResult",
     "LedgerPBOResult",
     "PBOResult",
     "PurgedKFold",
+    "adjusted_p_values",
     "annualization_factor_lo",
     "config_hash",
     "deflated_sharpe_ratio",
     "expected_max_sharpe",
+    "haircut_sharpe",
     "min_track_record_length",
     "net_returns",
     "probabilistic_sharpe_ratio",
     "probability_of_backtest_overfitting",
+    "sharpe_p_value",
     "sharpe_ratio",
 ]
