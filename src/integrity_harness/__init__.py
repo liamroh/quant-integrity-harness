@@ -6,7 +6,7 @@ that gates result reporting on the Deflated Sharpe Ratio.
 """
 
 from .costs import CostModel, net_returns
-from .ledger import ExperimentLedger, config_hash
+from .ledger import ExperimentLedger, LedgerPBOResult, config_hash
 from .metrics import (
     annualization_factor_lo,
     deflated_sharpe_ratio,
@@ -25,6 +25,7 @@ __all__ = [
     "CombinatorialPurgedCV",
     "CostModel",
     "ExperimentLedger",
+    "LedgerPBOResult",
     "PBOResult",
     "PurgedKFold",
     "annualization_factor_lo",
