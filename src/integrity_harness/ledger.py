@@ -23,10 +23,13 @@ Design rules:
 from __future__ import annotations
 
 import hashlib
+import io
 import json
 import subprocess
 import time
 import warnings
+from collections import Counter
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -34,9 +37,19 @@ import numpy as np
 from scipy import stats
 
 from .metrics import deflated_sharpe_ratio, sharpe_ratio
+from .pbo import PBOResult, probability_of_backtest_overfitting
 
 # Sentinel prev_hash for the first record of a hash-chained ledger.
 GENESIS_HASH = "0" * 64
+
+
+@dataclass(frozen=True)
+class LedgerPBOResult:
+    """PBO computed from ledger history, with exclusion accounting."""
+
+    result: PBOResult
+    n_included: int
+    n_excluded: int
 
 
 def config_hash(config: dict[str, Any]) -> str:
@@ -79,12 +92,19 @@ class ExperimentLedger:
         n_obs: int,
         notes: str = "",
         allow_rerun: bool = False,
+        returns: np.ndarray | None = None,
     ) -> str:
         """Append one trial. Returns the config hash.
 
         Each record carries `prev_hash`, the SHA-256 of the previous
         record's raw line bytes (GENESIS_HASH for the first record), making
         the file a hash chain that `verify()` can check for tampering.
+
+        Pass `returns` to persist the trial's per-period return series in a
+        content-addressed sidecar (returns/<sha16>.npy next to the ledger
+        file). The record then stores the sidecar path and its SHA-256, so
+        the hash chain covers the series too, and `pbo()` can rebuild the
+        CSCV matrix from history.
         """
         h = config_hash(config)
         lines = self._raw_lines()
@@ -104,9 +124,101 @@ class ExperimentLedger:
             "notes": notes,
             "prev_hash": prev_hash,
         }
+        if returns is not None:
+            r = np.asarray(returns, dtype=float)
+            if r.ndim != 1:
+                raise ValueError("returns must be a 1-D per-period return series")
+            if len(r) != int(n_obs):
+                raise ValueError(
+                    f"n_obs ({n_obs}) does not match len(returns) ({len(r)})"
+                )
+            sr = sharpe_ratio(r)
+            if abs(sr - float(sharpe)) > 1e-6:
+                warnings.warn(
+                    f"recorded sharpe {float(sharpe):.6f} does not match the "
+                    f"sharpe of the stored returns ({sr:.6f}); report_gate() "
+                    "will refuse this trial unless the series matches.",
+                    RuntimeWarning,
+                    stacklevel=2,
+                )
+            rec["returns_path"], rec["returns_sha256"] = self._store_returns(r)
         with self.path.open("a") as f:
             f.write(json.dumps(rec, default=str) + "\n")
         return h
+
+    def _store_returns(self, r: np.ndarray) -> tuple[str, str]:
+        """Write `r` to a content-addressed .npy sidecar; return (relpath, sha256)."""
+        buf = io.BytesIO()
+        np.save(buf, r)
+        data = buf.getvalue()
+        digest = hashlib.sha256(data).hexdigest()
+        rel = Path("returns") / f"{digest[:16]}.npy"
+        target = self.path.parent / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if not target.exists():
+            target.write_bytes(data)
+        return str(rel), digest
+
+    def _load_returns_record(self, rec: dict[str, Any]) -> np.ndarray:
+        path = self.path.parent / rec["returns_path"]
+        data = path.read_bytes()
+        if hashlib.sha256(data).hexdigest() != rec["returns_sha256"]:
+            raise ValueError(
+                f"{path}: sha256 does not match the ledger record for "
+                f"{rec['config_hash']}; the stored return series has been "
+                "altered or corrupted."
+            )
+        return np.load(io.BytesIO(data))
+
+    def load_returns(self, config_hash: str) -> np.ndarray:
+        """Load the stored return series for a recorded trial.
+
+        Uses the most recent record with that hash that has stored returns.
+        Verifies the sidecar's SHA-256 against the ledger before returning.
+        """
+        matches = [
+            rec
+            for rec in self._records()
+            if rec["config_hash"] == config_hash and "returns_path" in rec
+        ]
+        if not matches:
+            raise ValueError(f"no stored returns for config_hash {config_hash}")
+        return self._load_returns_record(matches[-1])
+
+    def pbo(self, n_blocks: int = 8) -> LedgerPBOResult:
+        """PBO (CSCV) over the ledger's stored return series.
+
+        Assembles the T x N matrix from every record with stored returns,
+        in record order. Trials without stored returns, or whose length
+        differs from the modal length, are excluded and counted in
+        `n_excluded`. Series must cover the same time span for CSCV row
+        blocks to mean anything; the ledger cannot check alignment, only
+        length.
+        """
+        stored: list[np.ndarray] = []
+        n_excluded = 0
+        for rec in self._records():
+            if "returns_path" not in rec:
+                n_excluded += 1
+                continue
+            stored.append(self._load_returns_record(rec))
+        if len(stored) >= 2:
+            t_modal, _ = Counter(len(s) for s in stored).most_common(1)[0]
+            kept = [s for s in stored if len(s) == t_modal]
+            n_excluded += len(stored) - len(kept)
+        else:
+            kept = stored
+        if len(kept) < 2:
+            raise ValueError(
+                "fewer than 2 trials with stored returns; record trials with "
+                "returns=... to make PBO computable from the ledger."
+            )
+        result = probability_of_backtest_overfitting(
+            np.column_stack(kept), n_blocks=n_blocks
+        )
+        return LedgerPBOResult(
+            result=result, n_included=len(kept), n_excluded=n_excluded
+        )
 
     def verify(self) -> int:
         """Walk the hash chain; return the number of verified links.

@@ -40,6 +40,7 @@ working in this repo MUST follow these rules. They are not suggestions.
 - Commits are authored solely as Liam Roh <liamrohx@gmail.com>. No
   Co-Authored-By trailers, no AI attribution, no session links
   (enforced via `.claude/settings.json` attribution config).
+- PR descriptions carry no attribution footers or generated-by lines.
 - PR descriptions are concise and pragmatic: technical detail only, no
   flowery language, expand a point only when a reviewer needs it.
   Structure: one-line summary, changes, non-obvious rationale (required
