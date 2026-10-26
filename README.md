@@ -94,7 +94,7 @@ that is what they are.
 
 - [ ] Nautilus Trader / vectorbt adapter layer
 - [ ] CPCV path-distribution reporting (per-path DSR, drawdown envelope)
-- [ ] Harvey-Liu haircut Sharpe
+- [x] Harvey-Liu haircut Sharpe (Bonferroni, Holm, BHY)
 - [ ] Point-in-time data loaders (survivorship-bias-free universes)
 
 MIT License.
