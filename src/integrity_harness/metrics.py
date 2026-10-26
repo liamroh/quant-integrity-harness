@@ -12,6 +12,8 @@ References:
 
 from __future__ import annotations
 
+import warnings
+
 import numpy as np
 from scipy import stats
 
@@ -41,6 +43,12 @@ def annualization_factor_lo(returns: np.ndarray, q: int) -> float:
     T = len(r)
     gamma0 = float(r @ r) / T
     if gamma0 == 0:
+        warnings.warn(
+            "annualization_factor_lo: zero-variance series has no defined "
+            "autocorrelation; falling back to sqrt(q).",
+            RuntimeWarning,
+            stacklevel=2,
+        )
         return float(np.sqrt(q))
     s = 0.0
     for k in range(1, q):
@@ -49,7 +57,18 @@ def annualization_factor_lo(returns: np.ndarray, q: int) -> float:
         rho_k = (float(r[k:] @ r[:-k]) / T) / gamma0
         s += (q - k) * rho_k
     denom = q + 2.0 * s
-    if denom <= 0:  # pathological negative-autocorrelation edge case
+    if denom <= 0:
+        # Defensive: with the biased (1/T) ACF estimator this quantity is a
+        # Fejer-kernel integral of the periodogram, hence nonnegative, and
+        # finite-sample attenuation keeps it strictly positive in every case
+        # we could construct. Warn loudly if an input ever reaches it.
+        warnings.warn(
+            f"annualization_factor_lo: q + 2*sum(rho) = {denom:.4f} <= 0 "
+            "(extreme negative autocorrelation); falling back to sqrt(q). "
+            "Inspect the series before trusting any annualized figure.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
         return float(np.sqrt(q))
     return float(q / np.sqrt(denom))
 

@@ -14,19 +14,25 @@ jobs:
       - run: pip install -e ".[dev]"
       - run: ruff check src/ tests/ examples/
       - run: pytest tests/ -q
-  ledger-append-only:
+  ledger-integrity:
+    # Runs on pull requests AND pushes to main, so direct pushes cannot
+    # bypass the append-only contract.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with: { fetch-depth: 0 }
-      - name: Forbid edits/deletions to ledger files
+      - name: Resolve base commit
+        id: base
         run: |
           if [ "${{ github.event_name }}" = "pull_request" ]; then
-            BASE="origin/${{ github.base_ref }}"
-            git fetch origin ${{ github.base_ref }}
-            CHANGED=$(git diff --diff-filter=MD --name-only "$BASE"...HEAD -- 'experiments/*.jsonl' || true)
-            if [ -n "$CHANGED" ]; then
-              echo "::error::Ledger files are append-only. Modified/deleted: $CHANGED"
-              exit 1
-            fi
+            echo "base=${{ github.event.pull_request.base.sha }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "base=${{ github.event.before }}" >> "$GITHUB_OUTPUT"
           fi
+      - name: Ledger files must be append-only (prefix check)
+        run: bash scripts/ledger_append_check.sh "${{ steps.base.outputs.base }}"
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: pip install -e .
+      - name: Ledger hash chains must verify
+        run: python scripts/verify_ledgers.py experiments

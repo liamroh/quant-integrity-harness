@@ -58,6 +58,18 @@ def test_lo_annualization_iid_reduces_to_sqrt_q():
     assert eta == pytest.approx(np.sqrt(12), rel=0.02)
 
 
+def test_lo_annualization_warns_on_zero_variance_series():
+    # A zero-variance series has no defined autocorrelation; the sqrt(q)
+    # fallback is a behavior change and must not pass silently. (The
+    # non-positive-denominator fallback also warns, but with the biased
+    # ACF estimator that quantity is a Fejer-kernel integral of the
+    # periodogram and provably nonnegative, so it has no reachable test.)
+    r = np.zeros(100)
+    with pytest.warns(RuntimeWarning, match="sqrt"):
+        eta = annualization_factor_lo(r, 252)
+    assert eta == pytest.approx(np.sqrt(252))
+
+
 def test_lo_annualization_positive_autocorr_below_sqrt_q():
     rng = np.random.default_rng(2)
     e = rng.normal(0, 0.01, 100_000)

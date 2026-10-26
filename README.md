@@ -1,28 +1,31 @@
 # integrity-harness
 
 A research-integrity layer for financial backtests. Not another backtesting
-engine — a statistical enforcement layer designed to wrap one (vectorbt,
+engine, but a statistical enforcement layer designed to wrap one (vectorbt,
 Nautilus Trader, or your own), making the most common forms of backtest
 self-deception mechanically difficult.
 
 **What it enforces:**
 
-- **Leakage-free cross-validation** — `PurgedKFold` and
+- **Leakage-free cross-validation:** `PurgedKFold` and
   `CombinatorialPurgedCV` (CPCV) with label-span purging and embargo, per
   López de Prado (*Advances in Financial Machine Learning*, ch. 7, 12).
   CPCV generates φ(N,k) = (k/N)·C(N,k) full out-of-sample backtest paths so
-  you evaluate a *distribution* of outcomes, not one lucky path.
-- **Multiple-testing-aware statistics** — Probabilistic Sharpe Ratio,
+  you evaluate a *distribution* of outcomes, not one lucky path. Both
+  splitters assume a single contiguous time series per CV run; stacked
+  panel data (one row per asset-date) must be split per asset.
+- **Multiple-testing-aware statistics:** Probabilistic Sharpe Ratio,
   Deflated Sharpe Ratio (with the False Strategy Theorem E[max SR]
   benchmark), Minimum Track Record Length, Lo (2002) autocorrelation-aware
   annualization, and Probability of Backtest Overfitting via CSCV.
-- **An append-only experiment ledger** — every configuration you evaluate is
+- **An append-only experiment ledger:** every configuration you evaluate is
   a recorded trial (JSONL: config hash, git SHA, timestamp, Sharpe). The
   ledger's true trial count and cross-trial variance feed the DSR, and
-  `report_gate()` refuses to bless any result that doesn't clear DSR > 0.95
-  against your *full* trial history. CI enforces that ledger files are
-  never edited or deleted.
-- **Net-of-cost evaluation** — half-spread + square-root-law market impact
+  `report_gate()` takes the raw return series plus a recorded trial's hash,
+  recomputes the Sharpe, skew, and kurtosis itself, and refuses to bless
+  any result that doesn't clear DSR > 0.95 against your *full* trial
+  history. CI enforces that ledger files are never edited or deleted.
+- **Net-of-cost evaluation:** half-spread + square-root-law market impact
   with explicit participation and turnover accounting.
 
 ## The point, in one demo
@@ -40,7 +43,7 @@ this strategy, it can't be trusted to find a real one.
 
 ```bash
 pip install -e ".[dev]"
-pytest tests/ -q     # 20 tests: worked examples + Monte-Carlo agreement
+pytest tests/ -q     # 39 tests: worked examples + Monte-Carlo agreement
 ruff check src/ tests/
 ```
 
@@ -67,8 +70,8 @@ for split in cv.split(spans):          # 15 splits -> 5 OOS paths
     ...  # fit on split.train_idx, predict on split.test_idx
 
 sr = sharpe_ratio(my_oos_returns)      # per-period, always
-ledger.record({"model": "gbrt", "depth": 3}, sr, n_obs=len(my_oos_returns))
-ledger.report_gate(sr, n_obs=len(my_oos_returns))  # raises unless DSR > 0.95
+h = ledger.record({"model": "gbrt", "depth": 3}, sr, n_obs=len(my_oos_returns))
+ledger.report_gate(my_oos_returns, h)  # raises unless DSR > 0.95
 ```
 
 ## Design rules (see CLAUDE.md)
@@ -76,7 +79,7 @@ ledger.report_gate(sr, n_obs=len(my_oos_returns))  # raises unless DSR > 0.95
 The repo carries a research constitution for humans and AI agents alike:
 every evaluation is a ledger trial, evaluation code never changes alongside
 strategy code, all CV is purged, all Sharpes are per-period internally, and
-blocked results are reported as "not distinguishable from luck" — because
+blocked results are reported as "not distinguishable from luck", because
 that is what they are.
 
 ## References
@@ -91,7 +94,7 @@ that is what they are.
 
 - [ ] Nautilus Trader / vectorbt adapter layer
 - [ ] CPCV path-distribution reporting (per-path DSR, drawdown envelope)
-- [ ] Harvey–Liu haircut Sharpe
+- [ ] Harvey-Liu haircut Sharpe
 - [ ] Point-in-time data loaders (survivorship-bias-free universes)
 
 MIT License.

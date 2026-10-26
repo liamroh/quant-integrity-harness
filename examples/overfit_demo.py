@@ -9,6 +9,9 @@ pick the best in-sample Sharpe (looks great!), then show:
 Run:  python examples/overfit_demo.py
 """
 
+import tempfile
+from pathlib import Path
+
 import numpy as np
 
 from integrity_harness import (
@@ -25,12 +28,17 @@ T, N = 1250, 200  # 5 years daily, 200 mined configurations
 # Pure noise "market": no strategy here can have real skill.
 trial_returns = rng.normal(0.0, 0.01, size=(T, N))
 
-ledger = ExperimentLedger("experiments/demo_ledger.jsonl")
+# The demo ledger goes in a temp directory so repeated runs are idempotent
+# and never dirty the committed experiments/ files (which are append-only).
+ledger_path = Path(tempfile.mkdtemp(prefix="overfit_demo_")) / "demo_ledger.jsonl"
+print(f"Demo ledger: {ledger_path}\n")
+ledger = ExperimentLedger(ledger_path)
 sharpes = []
+hashes = []
 for j in range(N):
     sr = sharpe_ratio(trial_returns[:, j])
     sharpes.append(sr)
-    ledger.record({"demo": "noise-mining", "config_id": j}, sr, T, allow_rerun=True)
+    hashes.append(ledger.record({"demo": "noise-mining", "config_id": j}, sr, T))
 
 best = int(np.argmax(sharpes))
 best_sr = sharpes[best]
@@ -38,9 +46,10 @@ ann = best_sr * np.sqrt(252)
 print(f"Mined {N} configs. Best in-sample Sharpe: {best_sr:.3f}/day (~{ann:.2f} annualized)")
 print("A naive backtest report would ship this.\n")
 
-# 1) DSR gate
+# 1) DSR gate: takes the return series and the recorded trial's hash, and
+# recomputes the statistics itself. It cannot bless unrecorded numbers.
 try:
-    ledger.report_gate(best_sr, n_obs=T)
+    ledger.report_gate(trial_returns[:, best], hashes[best])
     print("DSR gate: PASSED (unexpected!)")
 except RuntimeError as e:
     print(f"DSR gate: {e}\n")
